@@ -9,6 +9,7 @@
     body { margin: 0; font-family: Arial, "PingFang SC", sans-serif; background: #f3efe7; color: #282018; }
     header { padding: 18px 24px; background: #fffaf2; border-bottom: 1px solid #d9cdbc; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
     h1 { margin: 0; font-size: 26px; }
+    h3 { margin: 0 0 8px; font-size: 16px; }
     button { border: 0; border-radius: 8px; padding: 10px 13px; background: #8d3e37; color: #fff; font-weight: 800; cursor: pointer; }
     button.secondary { background: #71675c; }
     input, select { width: 100%; border: 1px solid #d9cdbc; border-radius: 6px; padding: 9px; font: inherit; background: #fff; }
@@ -27,12 +28,28 @@
     .mini { aspect-ratio: 1; border-radius: 2px; }
     .toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .warning { color: #a03a2e; font-weight: 800; }
-    @media (max-width: 1000px) { header { display: block; } .app { grid-template-columns: 1fr; } }
+    .calib { grid-column: 1 / -1; }
+    .calib-grid { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 18px; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+    .hint { color: #76695e; font-size: 13px; margin: 4px 0; }
+    .msg { font-weight: 800; min-height: 1.2em; }
+    .msg.ok { color: #355b38; }
+    .msg.err { color: #a03a2e; }
+    .result { background: #f3ead9; border: 1px solid #e1d5c5; border-radius: 8px; padding: 10px 12px; margin-top: 10px; line-height: 1.8; }
+    .history { max-height: 280px; overflow: auto; border: 1px solid #e1d5c5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #e1d5c5; text-align: left; white-space: nowrap; }
+    th { position: sticky; top: 0; background: #f3ead9; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; }
+    .badge.ok { background: #dce8d5; color: #355b38; }
+    .badge.warn { background: #f2d7cd; color: #a03a2e; }
+    .badge.off { background: #e8e2d8; color: #71675c; }
+    @media (max-width: 1000px) { header { display: block; } .app { grid-template-columns: 1fr; } .calib-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <header>
-    <div><h1>手工织锦纹样排版台</h1><div>绘制经纬网格纹样，统计色线用量并保存方案。</div></div>
+    <div><h1>手工织锦纹样排版台</h1><div>绘制经纬网格纹样，统计色线用量并保存方案，支持洗缩校准与织造网格反推。</div></div>
     <div class="toolbar"><button id="saveBtn">保存方案</button><button id="exportBtn" class="secondary">导出JSON</button></div>
   </header>
   <main class="app">
@@ -40,7 +57,10 @@
       <h2>画布</h2>
       <label>经向列数</label><input id="cols" type="number" value="18" min="6" max="36">
       <label>纬向行数</label><input id="rows" type="number" value="14" min="6" max="32">
+      <label>经密（根/cm）</label><input id="warpDensity" type="number" value="24" min="0.5" step="0.5">
+      <label>纬密（根/cm）</label><input id="weftDensity" type="number" value="20" min="0.5" step="0.5">
       <button id="newBtn">新建网格</button>
+      <p class="hint">画布行列或经纬密变化后，旧洗缩基准即失效。</p>
       <h2>色线库</h2>
       <div class="palette" id="palette"></div>
       <h2>基础纹样块</h2>
@@ -62,8 +82,107 @@
       <h2>断线风险</h2>
       <div id="risk"></div>
     </aside>
+    <section class="panel calib">
+      <h2>洗缩校准</h2>
+      <div class="calib-grid">
+        <div>
+          <h3>登记样片</h3>
+          <p class="hint" id="regPlan"></p>
+          <label>样片编号</label><input id="sampleId" type="text" placeholder="如 S-2026-01">
+          <div class="fields">
+            <div><label>坯布宽（cm）</label><input id="greigeW" type="number" min="0" step="0.1"></div>
+            <div><label>坯布长（cm）</label><input id="greigeL" type="number" min="0" step="0.1"></div>
+            <div><label>洗后宽（cm）</label><input id="washedW" type="number" min="0" step="0.1"></div>
+            <div><label>洗后长（cm）</label><input id="washedL" type="number" min="0" step="0.1"></div>
+          </div>
+          <button id="regBtn">登记样片</button>
+          <p class="hint">与基准缩率相对偏差超过两成（20%）的样片将停在待复测。</p>
+          <p class="msg" id="regMsg"></p>
+        </div>
+        <div>
+          <h3>排下一匹</h3>
+          <p class="hint" id="curPlan"></p>
+          <p class="hint" id="baselineInfo"></p>
+          <label>重排基准（仅当前方案最近一次通过的样片可用）</label>
+          <select id="baselineSel"></select>
+          <div class="fields">
+            <div><label>成品宽（cm）</label><input id="finW" type="number" min="0" step="0.1"></div>
+            <div><label>成品长（cm）</label><input id="finL" type="number" min="0" step="0.1"></div>
+          </div>
+          <button id="layoutBtn">反推织造网格</button>
+          <div id="layoutOut"></div>
+        </div>
+        <div>
+          <h3>历史样片</h3>
+          <div class="history">
+            <table>
+              <thead><tr><th>编号</th><th>方案</th><th>经缩</th><th>纬缩</th><th>状态</th><th>登记时间</th></tr></thead>
+              <tbody id="historyBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
   <script>
+    /* ================= 计算规则：缩率、偏差、网格反推（纯函数，不碰页面与存储） ================= */
+    const ShrinkageRules = {
+      RETEST_THRESHOLD: 0.2, // 新样片与基准缩率的相对偏差上限：两成
+      planKey(p) { return [p.cols, p.rows, p.warpDensity, p.weftDensity].join("@"); },
+      planLabel(p) { return p.cols + "列×" + p.rows + "行｜经密" + p.warpDensity + " 纬密" + p.weftDensity; },
+      check(greigeW, greigeL, washedW, washedL) {
+        if ([greigeW, greigeL, washedW, washedL].some(v => !(v > 0))) return "坯布和洗后的宽长都要填大于 0 的数。";
+        if (washedW > greigeW || washedL > greigeL) return "洗后尺寸不应大于坯布尺寸。";
+        return null;
+      },
+      shrinkRate(greige, washed) { return (greige - washed) / greige; },
+      deviation(rate, base) { return base === 0 ? (rate === 0 ? 0 : Infinity) : Math.abs(rate - base) / Math.abs(base); },
+      evaluate(shrinkW, shrinkL, baseline) {
+        if (!baseline) return { status: "passed", dev: 0 };
+        const dev = Math.max(this.deviation(shrinkW, baseline.shrinkW), this.deviation(shrinkL, baseline.shrinkL));
+        return { status: dev > this.RETEST_THRESHOLD ? "pending" : "passed", dev };
+      },
+      greigeSize(finW, finL, shrinkW, shrinkL) { return { w: finW / (1 - shrinkW), l: finL / (1 - shrinkL) }; },
+      weavingGrid(greigeW, greigeL, warpDensity, weftDensity) { return { cols: Math.round(greigeW * warpDensity), rows: Math.round(greigeL * weftDensity) }; },
+      repeatPlan(total, unit) { return { times: Math.floor(total / unit), rest: total % unit }; },
+    };
+
+    /* ================= 样片档案：登记、基准判定、历史与本地保存 ================= */
+    const SampleArchive = {
+      KEY: "zfl31Samples",
+      samples: [],
+      load() { this.samples = JSON.parse(localStorage.getItem(this.KEY) || "[]"); },
+      save() { localStorage.setItem(this.KEY, JSON.stringify(this.samples)); },
+      hasId(id) { return this.samples.some(s => s.id === id); },
+      baselineFor(planKey) {
+        for (let i = this.samples.length - 1; i >= 0; i--) {
+          const s = this.samples[i];
+          if (s.planKey === planKey && s.status === "passed") return s;
+        }
+        return null;
+      },
+      baselines() {
+        const seen = new Set(), out = [];
+        for (let i = this.samples.length - 1; i >= 0; i--) {
+          const s = this.samples[i];
+          if (s.status === "passed" && !seen.has(s.planKey)) { seen.add(s.planKey); out.push(s); }
+        }
+        return out;
+      },
+      register(input) {
+        const shrinkW = ShrinkageRules.shrinkRate(input.greigeW, input.washedW);
+        const shrinkL = ShrinkageRules.shrinkRate(input.greigeL, input.washedL);
+        const planKey = ShrinkageRules.planKey(input);
+        const verdict = ShrinkageRules.evaluate(shrinkW, shrinkL, this.baselineFor(planKey));
+        const sample = Object.assign({}, input, { planKey, shrinkW, shrinkL, status: verdict.status, dev: verdict.dev, time: Date.now() });
+        this.samples.push(sample);
+        this.save();
+        return sample;
+      },
+      history() { return this.samples.slice().reverse(); },
+    };
+
+    /* ================= 页面操作：画布绘制 + 校准面板 ================= */
     const colors = ["#f7e7c4","#a6322d","#1f5f78","#d6a437","#355b38","#713d7b","#1e1b18","#e98c52"];
     const grid = document.querySelector("#grid");
     const palette = document.querySelector("#palette");
@@ -73,12 +192,25 @@
     let cols = 18, rows = 14, active = 1, block = "dot", dragging = false;
     let cells = [];
     let undo = [], redo = [];
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const pct = r => (r * 100).toFixed(1) + "%";
+    const fmt = n => Math.round(n * 10) / 10;
+    const fmtTime = t => new Date(t).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+    const numInput = q => Number(document.querySelector(q).value);
+    function currentPlan() {
+      return { cols, rows, warpDensity: numInput("#warpDensity"), weftDensity: numInput("#weftDensity") };
+    }
     function init(loadSaved = true) {
       const saved = loadSaved && JSON.parse(localStorage.getItem("zfl31Pattern") || "null");
-      if (saved) { cols = saved.cols; rows = saved.rows; cells = saved.cells; }
-      else { cols = Number(document.querySelector("#cols").value); rows = Number(document.querySelector("#rows").value); cells = Array(cols * rows).fill(0); }
+      if (saved) {
+        cols = saved.cols; rows = saved.rows; cells = saved.cells;
+        if (saved.warpDensity) document.querySelector("#warpDensity").value = saved.warpDensity;
+        if (saved.weftDensity) document.querySelector("#weftDensity").value = saved.weftDensity;
+      }
+      else { cols = numInput("#cols"); rows = numInput("#rows"); cells = Array(cols * rows).fill(0); }
       document.querySelector("#cols").value = cols; document.querySelector("#rows").value = rows;
       render();
+      renderCalib();
     }
     function render() {
       palette.innerHTML = colors.map((c, i) => '<button class="swatch '+(i===active?'active':'')+'" data-color="'+i+'" style="background:'+c+'"></button>').join("");
@@ -118,16 +250,109 @@
       }
       risk.innerHTML = riskRows.length ? '<p class="warning">第'+riskRows.join("、")+'行换色过密，可能断线。</p>' : '<p>暂无明显断线风险。</p>';
     }
+    /* ---- 校准面板：只负责读写页面，计算走 ShrinkageRules，数据走 SampleArchive ---- */
+    function statusView(s, currentKey) {
+      if (s.status === "pending") return { cls: "warn", text: "待复测·偏" + pct(s.dev) };
+      if (SampleArchive.baselineFor(s.planKey) !== s) return { cls: "off", text: "历史通过" };
+      return s.planKey === currentKey ? { cls: "ok", text: "有效基准" } : { cls: "off", text: "基准·已失效" };
+    }
+    function renderHistory(currentKey) {
+      const body = SampleArchive.history().map(s => {
+        const st = statusView(s, currentKey);
+        return "<tr><td>" + esc(s.id) + "</td><td>" + esc(ShrinkageRules.planLabel(s)) + "</td><td>" + pct(s.shrinkW) + "</td><td>" + pct(s.shrinkL)
+          + '</td><td><span class="badge ' + st.cls + '">' + st.text + "</span></td><td>" + fmtTime(s.time) + "</td></tr>";
+      }).join("");
+      document.querySelector("#historyBody").innerHTML = body || '<tr><td colspan="6">暂无样片记录。</td></tr>';
+    }
+    function renderCalib() {
+      const plan = currentPlan();
+      const key = ShrinkageRules.planKey(plan);
+      const label = ShrinkageRules.planLabel(plan);
+      document.querySelector("#regPlan").textContent = "登记记入当前方案：" + label;
+      document.querySelector("#curPlan").textContent = "当前方案：" + label;
+      const base = SampleArchive.baselineFor(key);
+      const info = document.querySelector("#baselineInfo");
+      if (base) {
+        info.innerHTML = "有效基准：<b>" + esc(base.id) + "</b>（经缩 " + pct(base.shrinkW) + "，纬缩 " + pct(base.shrinkL) + "）";
+      } else {
+        info.innerHTML = SampleArchive.baselines().length
+          ? '<span class="warning">画布行列或经纬密已变化，旧基准失效，当前方案无有效基准。</span>'
+          : "尚无基准样片，请先登记样片。";
+      }
+      const sel = document.querySelector("#baselineSel");
+      const prev = sel.value;
+      const bases = SampleArchive.baselines();
+      sel.innerHTML = bases.length
+        ? bases.map(s => {
+            const valid = s.planKey === key;
+            return '<option value="' + esc(s.id) + '"' + (valid ? "" : " disabled") + ">" + esc(s.id) + "｜" + esc(ShrinkageRules.planLabel(s)) + (valid ? "" : "（已失效）") + "</option>";
+          }).join("")
+        : '<option value="">（无可用基准）</option>';
+      sel.value = base ? base.id : prev;
+      document.querySelector("#layoutOut").innerHTML = "";
+      renderHistory(key);
+    }
+    document.querySelector("#regBtn").onclick = () => {
+      const msg = document.querySelector("#regMsg");
+      const fail = t => { msg.textContent = t; msg.className = "msg err"; };
+      const id = document.querySelector("#sampleId").value.trim();
+      if (!id) return fail("请填写样片编号。");
+      if (SampleArchive.hasId(id)) return fail("样片编号 " + id + " 已存在，请换号登记。");
+      const plan = currentPlan();
+      if (!(plan.warpDensity > 0) || !(plan.weftDensity > 0)) return fail("请先填写经密和纬密。");
+      const greigeW = numInput("#greigeW"), greigeL = numInput("#greigeL");
+      const washedW = numInput("#washedW"), washedL = numInput("#washedL");
+      const ruleErr = ShrinkageRules.check(greigeW, greigeL, washedW, washedL);
+      if (ruleErr) return fail(ruleErr);
+      const before = SampleArchive.baselineFor(ShrinkageRules.planKey(plan));
+      const s = SampleArchive.register(Object.assign({ id }, plan, { greigeW, greigeL, washedW, washedL }));
+      if (s.status === "pending") {
+        msg.className = "msg err";
+        msg.textContent = "与基准缩率偏差 " + pct(s.dev) + " 超过两成，停在待复测；基准仍为 " + before.id + "。";
+      } else {
+        msg.className = "msg ok";
+        msg.textContent = before
+          ? "通过（偏差 " + pct(s.dev) + "），" + s.id + " 已取代 " + before.id + " 成为新基准。"
+          : "首样通过，" + s.id + " 已设为本方案基准。";
+      }
+      ["#sampleId", "#greigeW", "#greigeL", "#washedW", "#washedL"].forEach(q => document.querySelector(q).value = "");
+      renderCalib();
+    };
+    document.querySelector("#layoutBtn").onclick = () => {
+      const out = document.querySelector("#layoutOut");
+      const plan = currentPlan();
+      const key = ShrinkageRules.planKey(plan);
+      const selId = document.querySelector("#baselineSel").value;
+      const s = SampleArchive.samples.find(x => x.id === selId);
+      if (!s || s.status !== "passed" || s.planKey !== key || SampleArchive.baselineFor(key) !== s) {
+        out.innerHTML = '<p class="warning">重排须选有效基准：当前方案最近一次通过的样片才可用。</p>';
+        return;
+      }
+      const finW = numInput("#finW"), finL = numInput("#finL");
+      if (!(finW > 0) || !(finL > 0)) { out.innerHTML = '<p class="warning">请填写成品宽和长。</p>'; return; }
+      const g = ShrinkageRules.greigeSize(finW, finL, s.shrinkW, s.shrinkL);
+      const t = ShrinkageRules.weavingGrid(g.w, g.l, s.warpDensity, s.weftDensity);
+      const rx = ShrinkageRules.repeatPlan(t.cols, cols), ry = ShrinkageRules.repeatPlan(t.rows, rows);
+      out.innerHTML = '<div class="result">按基准 <b>' + esc(s.id) + "</b>（经缩 " + pct(s.shrinkW) + "，纬缩 " + pct(s.shrinkL) + "）反推：<br>"
+        + "坯布尺寸：宽 <b>" + fmt(g.w) + "</b> cm × 长 <b>" + fmt(g.l) + "</b> cm<br>"
+        + "织造网格：经 <b>" + t.cols + "</b> 列 × 纬 <b>" + t.rows + "</b> 行<br>"
+        + "纹样重复：横向 " + rx.times + " 次余 " + rx.rest + " 列，纵向 " + ry.times + " 次余 " + ry.rest + " 行</div>";
+    };
+    ["#warpDensity", "#weftDensity"].forEach(q => document.querySelector(q).addEventListener("input", renderCalib));
     document.querySelectorAll("[data-block]").forEach(btn => btn.onclick = () => block = btn.dataset.block);
     document.querySelector("#newBtn").onclick = () => { undo = []; redo = []; init(false); };
     document.querySelector("#undoBtn").onclick = () => { if (!undo.length) return; redo.push([...cells]); cells = undo.pop(); render(); };
     document.querySelector("#redoBtn").onclick = () => { if (!redo.length) return; undo.push([...cells]); cells = redo.pop(); render(); };
-    document.querySelector("#saveBtn").onclick = () => localStorage.setItem("zfl31Pattern", JSON.stringify({ cols, rows, cells }));
+    document.querySelector("#saveBtn").onclick = () => {
+      const p = currentPlan();
+      localStorage.setItem("zfl31Pattern", JSON.stringify({ cols, rows, cells, warpDensity: p.warpDensity, weftDensity: p.weftDensity }));
+    };
     document.querySelector("#exportBtn").onclick = () => {
       const data = { cols, rows, cells, usage: colors.map((color, i) => ({ color, count: cells.filter(v => v === i).length })) };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "brocade-pattern.json"; a.click(); URL.revokeObjectURL(a.href);
     };
+    SampleArchive.load();
     init();
   </script>
 </body>
